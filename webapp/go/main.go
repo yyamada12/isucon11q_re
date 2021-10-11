@@ -56,7 +56,26 @@ var (
 
 	isuMap          IsuMap
 	isuConditionMap IsuConditionMap
+
+	trend TrendCache
 )
+
+type TrendCache struct {
+	trend []TrendResponse
+	mu    sync.RWMutex
+}
+
+func (tc *TrendCache) Update(newValue []TrendResponse) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.trend = newValue
+}
+
+func (tc *TrendCache) Get() []TrendResponse {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.trend
+}
 
 type IsuMap struct {
 	m  map[string]*Isu
@@ -328,6 +347,12 @@ func main() {
 	initIsuMap()
 	initIsuConditionMap()
 
+	go func() {
+		for {
+			loadTrend()
+			time.Sleep(50 * time.Microsecond)
+		}
+	}()
 }
 
 func initIsuMap() {
@@ -424,6 +449,7 @@ func postInitialize(c echo.Context) error {
 
 	initIsuMap()
 	initIsuConditionMap()
+	loadTrend()
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
@@ -1190,12 +1216,20 @@ func calculateConditionLevel(condition string) (string, error) {
 // GET /api/trend
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
+	res := trend.Get()
+	if res == nil {
+		loadTrend()
+		res = trend.Get()
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
+func loadTrend() {
 	characterList := []Isu{}
 	characterMap := map[string][]Isu{}
 	err := db.Select(&characterList, "SELECT `id`, `jia_isu_uuid`, `character` FROM `isu`")
 	if err != nil {
 		fmt.Printf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	for _, isu := range characterList {
@@ -1223,7 +1257,6 @@ func getTrend(c echo.Context) error {
 				)
 				if err != nil {
 					fmt.Printf("db error: %v", err)
-					return c.NoContent(http.StatusInternalServerError)
 				}
 				if len(conditions) > 0 {
 					isuLastCondition = &conditions[0]
@@ -1234,8 +1267,7 @@ func getTrend(c echo.Context) error {
 
 				conditionLevel, err := calculateConditionLevel(isuLastCondition.Condition)
 				if err != nil {
-					c.Logger().Error(err)
-					return c.NoContent(http.StatusInternalServerError)
+					fmt.Print(err)
 				}
 				trendCondition := TrendCondition{
 					ID:        isu.ID,
@@ -1269,9 +1301,10 @@ func getTrend(c echo.Context) error {
 				Warning:   characterWarningIsuConditions,
 				Critical:  characterCriticalIsuConditions,
 			})
+
+		trend.Update(res)
 	}
 
-	return c.JSON(http.StatusOK, res)
 }
 
 // POST /api/condition/:jia_isu_uuid
