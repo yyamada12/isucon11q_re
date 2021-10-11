@@ -65,7 +65,10 @@ type IsuConditionMap struct {
 func (icm *IsuConditionMap) Add(ic *IsuCondition) {
 	icm.mu.Lock()
 	defer icm.mu.Unlock()
-	icm.m[ic.JIAIsuUUID] = ic
+	old, ok := icm.m[ic.JIAIsuUUID]
+	if !ok || old.Timestamp.Before(ic.Timestamp) {
+		icm.m[ic.JIAIsuUUID] = ic
+	}
 }
 
 func (icm *IsuConditionMap) Get(id string) *IsuCondition {
@@ -1128,25 +1131,25 @@ func calculateConditionLevel(condition string) (string, error) {
 // ISUの性格毎の最新のコンディション情報
 func getTrend(c echo.Context) error {
 	characterList := []Isu{}
-	err := db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
+	characterMap := map[string][]Isu{}
+	err := db.Select(&characterList, "SELECT `id`, `jia_isu_uuid`, `character` FROM `isu`")
 	if err != nil {
 		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	for _, isu := range characterList {
+		isuList, ok := characterMap[isu.Character]
+		if !ok {
+			isuList = []Isu{}
+		}
+		isuList = append(isuList, isu)
+		characterMap[isu.Character] = isuList
+	}
+
 	res := []TrendResponse{}
 
-	for _, character := range characterList {
-		isuList := []Isu{}
-		err = db.Select(&isuList,
-			"SELECT * FROM `isu` WHERE `character` = ?",
-			character.Character,
-		)
-		if err != nil {
-			fmt.Printf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
+	for character, isuList := range characterMap {
 		characterInfoIsuConditions := []*TrendCondition{}
 		characterWarningIsuConditions := []*TrendCondition{}
 		characterCriticalIsuConditions := []*TrendCondition{}
@@ -1201,7 +1204,7 @@ func getTrend(c echo.Context) error {
 		})
 		res = append(res,
 			TrendResponse{
-				Character: character.Character,
+				Character: character,
 				Info:      characterInfoIsuConditions,
 				Warning:   characterWarningIsuConditions,
 				Critical:  characterCriticalIsuConditions,
