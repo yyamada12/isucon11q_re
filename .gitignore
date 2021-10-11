@@ -1,0 +1,13 @@
+nodejs/
+python/
+perl/
+php/
+ruby/
+rust/
+.*
+!.gitignore
+!.bashrc
+!.alias.bash
+/pprof
+/go
+/local
