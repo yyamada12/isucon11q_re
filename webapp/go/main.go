@@ -54,8 +54,37 @@ var (
 
 	postIsuConditionTargetBaseURL string // JIAへのactivate時に登録する，ISUがconditionを送る先のURL
 
+	isuMap          IsuMap
 	isuConditionMap IsuConditionMap
 )
+
+type IsuMap struct {
+	m  map[string]*Isu
+	mu sync.RWMutex
+}
+
+func (im *IsuMap) Add(i *Isu) {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+	im.m[i.JIAIsuUUID] = i
+
+}
+
+func (im *IsuMap) Get(id string) *Isu {
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	return im.m[id]
+}
+
+func (im *IsuMap) GetWithVeify(id string, userId string) *Isu {
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	isu, ok := im.m[id]
+	if !ok || isu.JIAUserID != userId {
+		return nil
+	}
+	return isu
+}
 
 type IsuConditionMap struct {
 	m  map[string]*IsuCondition
@@ -296,8 +325,18 @@ func main() {
 	serverPort := fmt.Sprintf(":%v", getEnv("SERVER_APP_PORT", "3000"))
 	e.Logger.Fatal(e.Start(serverPort))
 
+	initIsuMap()
 	initIsuConditionMap()
 
+}
+
+func initIsuMap() {
+	isuMap = IsuMap{m: map[string]*Isu{}}
+	isus := []Isu{}
+	db.Select(&isus, "SELECT * FROM `isu`")
+	for _, ic := range isus {
+		isuMap.Add(&ic)
+	}
 }
 
 func initIsuConditionMap() {
@@ -383,6 +422,7 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	initIsuMap()
 	initIsuConditionMap()
 
 	return c.JSON(http.StatusOK, InitializeResponse{
@@ -708,6 +748,8 @@ func postIsu(c echo.Context) error {
 		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	isuMap.Add(&isu)
 
 	return c.JSON(http.StatusCreated, isu)
 }
@@ -1237,14 +1279,17 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request body")
 	}
 
-	var count int
-	err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
-	if err != nil {
-		fmt.Printf("db error: %v", err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "not found: isu")
+	isu := isuConditionMap.Get(jiaIsuUUID)
+	if isu == nil {
+		var count int
+		err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
+		if err != nil {
+			fmt.Printf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if count == 0 {
+			return c.String(http.StatusNotFound, "not found: isu")
+		}
 	}
 
 	placeholders := []string{}
