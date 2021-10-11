@@ -83,13 +83,14 @@ type GetIsuListResponse struct {
 }
 
 type IsuCondition struct {
-	ID         int       `db:"id"`
-	JIAIsuUUID string    `db:"jia_isu_uuid"`
-	Timestamp  time.Time `db:"timestamp"`
-	IsSitting  bool      `db:"is_sitting"`
-	Condition  string    `db:"condition"`
-	Message    string    `db:"message"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID             int       `db:"id"`
+	JIAIsuUUID     string    `db:"jia_isu_uuid"`
+	Timestamp      time.Time `db:"timestamp"`
+	IsSitting      bool      `db:"is_sitting"`
+	Condition      string    `db:"condition"`
+	Message        string    `db:"message"`
+	CreatedAt      time.Time `db:"created_at"`
+	ConditionLevel string    `db:"condition_level"`
 }
 
 type MySQLConnectionEnv struct {
@@ -322,7 +323,7 @@ func postInitialize(c echo.Context) error {
 	cmd.Stdout = os.Stderr
 	err = cmd.Run()
 	if err != nil {
-		c.Logger().Errorf("exec init.sh error: %v", err)
+		fmt.Printf("exec init.sh error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -332,7 +333,7 @@ func postInitialize(c echo.Context) error {
 		request.JIAServiceURL,
 	)
 	if err != nil {
-		c.Logger().Errorf("db error : %v", err)
+		fmt.Printf("db error : %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -364,7 +365,7 @@ func postAuthentication(c echo.Context) error {
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		c.Logger().Errorf("invalid JWT payload")
+		fmt.Printf("invalid JWT payload")
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	jiaUserIDVar, ok := claims["jia_user_id"]
@@ -378,7 +379,7 @@ func postAuthentication(c echo.Context) error {
 
 	_, err = db.Exec("INSERT IGNORE INTO user (`jia_user_id`) VALUES (?)", jiaUserID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -459,7 +460,7 @@ func getIsuList(c echo.Context) error {
 
 	tx, err := db.Beginx()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -470,7 +471,7 @@ func getIsuList(c echo.Context) error {
 		"SELECT * FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
 		jiaUserID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -484,7 +485,7 @@ func getIsuList(c echo.Context) error {
 			if errors.Is(err, sql.ErrNoRows) {
 				foundLastCondition = false
 			} else {
-				c.Logger().Errorf("db error: %v", err)
+				fmt.Printf("db error: %v", err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
 		}
@@ -519,7 +520,7 @@ func getIsuList(c echo.Context) error {
 
 	err = tx.Commit()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -576,7 +577,7 @@ func postIsu(c echo.Context) error {
 
 	tx, err := db.Beginx()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -591,7 +592,7 @@ func postIsu(c echo.Context) error {
 			return c.String(http.StatusConflict, "duplicated: isu")
 		}
 
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -612,7 +613,7 @@ func postIsu(c echo.Context) error {
 	reqJIA.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(reqJIA)
 	if err != nil {
-		c.Logger().Errorf("failed to request to JIAService: %v", err)
+		fmt.Printf("failed to request to JIAService: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer res.Body.Close()
@@ -624,7 +625,7 @@ func postIsu(c echo.Context) error {
 	}
 
 	if res.StatusCode != http.StatusAccepted {
-		c.Logger().Errorf("JIAService returned error: status code %v, message: %v", res.StatusCode, string(resBody))
+		fmt.Printf("JIAService returned error: status code %v, message: %v", res.StatusCode, string(resBody))
 		return c.String(res.StatusCode, "JIAService returned error")
 	}
 
@@ -637,7 +638,7 @@ func postIsu(c echo.Context) error {
 
 	_, err = tx.Exec("UPDATE `isu` SET `character` = ? WHERE  `jia_isu_uuid` = ?", isuFromJIA.Character, jiaIsuUUID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -647,13 +648,13 @@ func postIsu(c echo.Context) error {
 		"SELECT * FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -683,7 +684,7 @@ func getIsuID(c echo.Context) error {
 			return c.String(http.StatusNotFound, "not found: isu")
 		}
 
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -713,7 +714,7 @@ func getIsuIcon(c echo.Context) error {
 			return c.String(http.StatusNotFound, "not found: isu")
 		}
 
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -746,7 +747,7 @@ func getIsuGraph(c echo.Context) error {
 
 	tx, err := db.Beginx()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -755,7 +756,7 @@ func getIsuGraph(c echo.Context) error {
 	err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if count == 0 {
@@ -770,7 +771,7 @@ func getIsuGraph(c echo.Context) error {
 
 	err = tx.Commit()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -968,9 +969,14 @@ func getIsuConditions(c echo.Context) error {
 	if conditionLevelCSV == "" {
 		return c.String(http.StatusBadRequest, "missing: condition_level")
 	}
-	conditionLevel := map[string]interface{}{}
-	for _, level := range strings.Split(conditionLevelCSV, ",") {
-		conditionLevel[level] = struct{}{}
+	// SQL Injection danger!
+	conditionLevelIn := ""
+	for i, level := range strings.Split(conditionLevelCSV, ",") {
+		if i == 0 {
+			conditionLevelIn += "'" + level + "'"
+		} else {
+			conditionLevelIn += ",'" + level + "'"
+		}
 	}
 
 	startTimeStr := c.QueryParam("start_time")
@@ -993,20 +999,20 @@ func getIsuConditions(c echo.Context) error {
 			return c.String(http.StatusNotFound, "not found: isu")
 		}
 
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	conditionsResponse, err := getIsuConditionsFromDB(db, jiaIsuUUID, endTime, conditionLevel, startTime, conditionLimit, isuName)
+	conditionsResponse, err := getIsuConditionsFromDB(db, jiaIsuUUID, endTime, conditionLevelIn, startTime, conditionLimit, isuName)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	return c.JSON(http.StatusOK, conditionsResponse)
 }
 
 // ISUのコンディションをDBから取得
-func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, conditionLevel map[string]interface{}, startTime time.Time,
+func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, conditionLevelIn string, startTime time.Time,
 	limit int, isuName string) ([]*GetIsuConditionResponse, error) {
 
 	conditions := []IsuCondition{}
@@ -1016,16 +1022,18 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime,
+				"	AND `condition_level` IN ("+conditionLevelIn+")"+
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, limit,
 		)
 	} else {
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
 				"	AND ? <= `timestamp`"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime, startTime,
+				"	AND `condition_level` IN ("+conditionLevelIn+")"+
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, startTime, limit,
 		)
 	}
 	if err != nil {
@@ -1034,27 +1042,16 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 
 	conditionsResponse := []*GetIsuConditionResponse{}
 	for _, c := range conditions {
-		cLevel, err := calculateConditionLevel(c.Condition)
-		if err != nil {
-			continue
+		data := GetIsuConditionResponse{
+			JIAIsuUUID:     c.JIAIsuUUID,
+			IsuName:        isuName,
+			Timestamp:      c.Timestamp.Unix(),
+			IsSitting:      c.IsSitting,
+			Condition:      c.Condition,
+			ConditionLevel: c.ConditionLevel,
+			Message:        c.Message,
 		}
-
-		if _, ok := conditionLevel[cLevel]; ok {
-			data := GetIsuConditionResponse{
-				JIAIsuUUID:     c.JIAIsuUUID,
-				IsuName:        isuName,
-				Timestamp:      c.Timestamp.Unix(),
-				IsSitting:      c.IsSitting,
-				Condition:      c.Condition,
-				ConditionLevel: cLevel,
-				Message:        c.Message,
-			}
-			conditionsResponse = append(conditionsResponse, &data)
-		}
-	}
-
-	if len(conditionsResponse) > limit {
-		conditionsResponse = conditionsResponse[:limit]
+		conditionsResponse = append(conditionsResponse, &data)
 	}
 
 	return conditionsResponse, nil
@@ -1085,7 +1082,7 @@ func getTrend(c echo.Context) error {
 	characterList := []Isu{}
 	err := db.Select(&characterList, "SELECT `character` FROM `isu` GROUP BY `character`")
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1098,7 +1095,7 @@ func getTrend(c echo.Context) error {
 			character.Character,
 		)
 		if err != nil {
-			c.Logger().Errorf("db error: %v", err)
+			fmt.Printf("db error: %v", err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
 
@@ -1112,7 +1109,7 @@ func getTrend(c echo.Context) error {
 				isu.JIAIsuUUID,
 			)
 			if err != nil {
-				c.Logger().Errorf("db error: %v", err)
+				fmt.Printf("db error: %v", err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
 
@@ -1186,7 +1183,7 @@ func postIsuCondition(c echo.Context) error {
 	var count int
 	err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if count == 0 {
@@ -1209,7 +1206,7 @@ func postIsuCondition(c echo.Context) error {
 
 	tx, err := db.Beginx()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -1219,13 +1216,13 @@ func postIsuCondition(c echo.Context) error {
 			"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
 			"	VALUES "+strings.Join(placeholders, ","), values...)
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		c.Logger().Errorf("db error: %v", err)
+		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 

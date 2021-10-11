@@ -23,6 +23,14 @@ CREATE TABLE `isu_condition` (
   `condition` VARCHAR(255) NOT NULL,
   `message` VARCHAR(255) NOT NULL,
   `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
+  `condition_level` VARCHAR(255) AS(
+    CASE
+      (LENGTH(`condition`) - LENGTH(REPLACE(`condition`, '=true', ''))) / 5
+      WHEN 0 THEN 'info'
+      WHEN 1 THEN 'warning'
+      WHEN 2 THEN 'warning'
+      WHEN 3 THEN 'critical'
+    END),
   PRIMARY KEY(`id`),
   INDEX idx_jia_isu_uuid_timestamp(`jia_isu_uuid`, `timestamp`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
