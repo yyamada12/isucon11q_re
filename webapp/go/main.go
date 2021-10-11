@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -308,6 +309,7 @@ func main() {
 	e.Use(middleware.Recover())
 
 	e.POST("/initialize", postInitialize)
+	e.POST("/reload", postReload)
 
 	e.POST("/api/auth", postAuthentication)
 	e.POST("/api/signout", postSignout)
@@ -455,6 +457,27 @@ func postInitialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	initIsuMap()
+	initIsuConditionMap()
+	loadTrend()
+
+	resp, err := http.Post("http://192.168.0.12:3000/reload", "application/json", bytes.NewBuffer([]byte("")))
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(body))
+
+	return c.JSON(http.StatusOK, InitializeResponse{
+		Language: "go",
+	})
+}
+
+func postReload(c echo.Context) error {
 	initIsuMap()
 	initIsuConditionMap()
 	loadTrend()
