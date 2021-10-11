@@ -788,6 +788,22 @@ func postIsu(c echo.Context) error {
 	return c.JSON(http.StatusCreated, isu)
 }
 
+func fetchIsu(jiaIsuUUID, jiaUserID string) *Isu {
+	isu := Isu{}
+	err := db.Get(&isu, "SELECT * FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
+		jiaUserID, jiaIsuUUID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+
+		fmt.Printf("db error: %v", err)
+		return nil
+	}
+	isuMap.Add(&isu)
+	return &isu
+}
+
 // GET /api/isu/:jia_isu_uuid
 // ISUの情報を取得
 func getIsuID(c echo.Context) error {
@@ -803,24 +819,15 @@ func getIsuID(c echo.Context) error {
 
 	jiaIsuUUID := c.Param("jia_isu_uuid")
 
-	var res Isu
 	isu := isuMap.GetWithVeify(jiaIsuUUID, jiaUserID)
-	if isu != nil {
-		res = *isu
-	} else {
-		err = db.Get(&res, "SELECT * FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-			jiaUserID, jiaIsuUUID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return c.String(http.StatusNotFound, "not found: isu")
-			}
-
-			fmt.Printf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
+	if isu == nil {
+		isu = fetchIsu(jiaIsuUUID, jiaUserID)
+		if isu == nil {
+			return c.String(http.StatusNotFound, "not found: isu")
 		}
 	}
 
-	return c.JSON(http.StatusOK, res)
+	return c.JSON(http.StatusOK, *isu)
 }
 
 // GET /api/isu/:jia_isu_uuid/icon
@@ -843,16 +850,11 @@ func getIsuIcon(c echo.Context) error {
 	if isu != nil {
 		image = isu.Image
 	} else {
-		err = db.Get(&image, "SELECT `image` FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-			jiaUserID, jiaIsuUUID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return c.String(http.StatusNotFound, "not found: isu")
-			}
-
-			fmt.Printf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
+		isu = fetchIsu(jiaIsuUUID, jiaUserID)
+		if isu == nil {
+			return c.String(http.StatusNotFound, "not found: isu")
 		}
+		image = isu.Image
 	}
 
 	return c.Blob(http.StatusOK, "", image)
@@ -891,14 +893,8 @@ func getIsuGraph(c echo.Context) error {
 
 	isu := isuMap.GetWithVeify(jiaIsuUUID, jiaUserID)
 	if isu == nil {
-		var count int
-		err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
-			jiaUserID, jiaIsuUUID)
-		if err != nil {
-			fmt.Printf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-		if count == 0 {
+		isu = fetchIsu(jiaIsuUUID, jiaUserID)
+		if isu == nil {
 			return c.String(http.StatusNotFound, "not found: isu")
 		}
 	}
@@ -1134,18 +1130,11 @@ func getIsuConditions(c echo.Context) error {
 	if isu != nil {
 		isuName = isu.Name
 	} else {
-		err = db.Get(&isuName,
-			"SELECT name FROM `isu` WHERE `jia_isu_uuid` = ? AND `jia_user_id` = ?",
-			jiaIsuUUID, jiaUserID,
-		)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return c.String(http.StatusNotFound, "not found: isu")
-			}
-
-			fmt.Printf("db error: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
+		isu = fetchIsu(jiaIsuUUID, jiaUserID)
+		if isu == nil {
+			return c.String(http.StatusNotFound, "not found: isu")
 		}
+		isuName = isu.Name
 	}
 
 	conditionsResponse, err := getIsuConditionsFromDB(db, jiaIsuUUID, endTime, conditionLevelIn, startTime, conditionLimit, isuName)
@@ -1338,7 +1327,7 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request body")
 	}
 
-	isu := isuConditionMap.Get(jiaIsuUUID)
+	isu := isuMap.Get(jiaIsuUUID)
 	if isu == nil {
 		var count int
 		err = db.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
