@@ -113,9 +113,14 @@ type IsuConditionMap struct {
 func (icm *IsuConditionMap) Add(ic *IsuCondition) {
 	icm.mu.Lock()
 	defer icm.mu.Unlock()
-	old, ok := icm.m[ic.JIAIsuUUID]
-	if !ok || old.Timestamp.Before(ic.Timestamp) {
-		icm.m[ic.JIAIsuUUID] = ic
+	icm.m[ic.JIAIsuUUID] = ic
+}
+
+func (icm *IsuConditionMap) AddAll(ics []IsuCondition) {
+	icm.mu.Lock()
+	defer icm.mu.Unlock()
+	for _, ic := range ics {
+		icm.m[ic.JIAIsuUUID] = &ic
 	}
 }
 
@@ -349,6 +354,7 @@ func main() {
 
 	go func() {
 		for {
+			loadIsuCondition()
 			loadTrend()
 			time.Sleep(50 * time.Microsecond)
 		}
@@ -366,11 +372,13 @@ func initIsuMap() {
 
 func initIsuConditionMap() {
 	isuConditionMap = IsuConditionMap{m: map[string]*IsuCondition{}}
+	loadIsuCondition()
+}
+
+func loadIsuCondition() {
 	isuConditions := []IsuCondition{}
 	db.Select(&isuConditions, "SELECT * FROM (SELECT `jia_isu_uuid`, max(`timestamp`) as max_timestamp FROM `isu_condition` GROUP BY `jia_isu_uuid`) a INNER JOIN `isu_condition` b ON a.`jia_isu_uuid` = b.`jia_isu_uuid` AND a.max_timestamp = b.`timestamp`")
-	for _, ic := range isuConditions {
-		isuConditionMap.Add(&ic)
-	}
+	isuConditionMap.AddAll(isuConditions)
 }
 
 func getSession(r *http.Request) (*sessions.Session, error) {
@@ -1346,15 +1354,8 @@ func postIsuCondition(c echo.Context) error {
 	placeholders := []string{}
 	values := []interface{}{}
 
-	latestTimestamp := int64(0)
-	latestCondition := PostIsuConditionRequest{}
-
 	for _, cond := range req {
 		timestamp := time.Unix(cond.Timestamp, 0)
-		if latestTimestamp < cond.Timestamp {
-			latestCondition = cond
-			latestTimestamp = cond.Timestamp
-		}
 
 		if !isValidConditionFormat(cond.Condition) {
 			return c.String(http.StatusBadRequest, "bad request body")
@@ -1385,14 +1386,6 @@ func postIsuCondition(c echo.Context) error {
 		fmt.Printf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-
-	isuConditionMap.Add(&IsuCondition{
-		JIAIsuUUID: jiaIsuUUID,
-		Timestamp:  time.Unix(latestCondition.Timestamp, 0),
-		IsSitting:  latestCondition.IsSitting,
-		Condition:  latestCondition.Condition,
-		Message:    latestCondition.Message,
-	})
 
 	return c.NoContent(http.StatusAccepted)
 }
