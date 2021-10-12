@@ -357,7 +357,7 @@ func main() {
 		for {
 			loadIsuCondition()
 			loadTrend()
-			time.Sleep(50 * time.Microsecond)
+			time.Sleep(1 * time.Microsecond)
 		}
 	}()
 }
